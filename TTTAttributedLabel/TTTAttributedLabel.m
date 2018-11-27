@@ -153,6 +153,12 @@ static inline NSAttributedString * NSAttributedStringByScalingFontSize(NSAttribu
     return mutableAttributedString;
 }
 
+static inline UIFont *UIFontByScalingFontSize(UIFont *font, CGFloat scale) {
+    NSString *fontName = font.fontName;
+    CGFloat pointSize = font.pointSize;
+    return [UIFont fontWithName:fontName size:CGFloat_floor(pointSize * scale)];
+}
+
 static inline NSAttributedString * NSAttributedStringBySettingColorFromContext(NSAttributedString *attributedString, UIColor *color) {
     if (!color) {
         return attributedString;
@@ -221,6 +227,7 @@ static inline CGSize CTFramesetterSuggestFrameSizeForAttributedStringWithConstra
 @property (readwrite, nonatomic, strong) NSArray *linkModels;
 @property (readwrite, nonatomic, strong) TTTAttributedLabelLink *activeLink;
 @property (readwrite, nonatomic, strong) NSArray *accessibilityElements;
+@property (nonatomic, assign) CGFloat currentScale;
 
 - (void) longPressGestureDidFire:(UILongPressGestureRecognizer *)sender;
 @end
@@ -283,7 +290,7 @@ static inline CGSize CTFramesetterSuggestFrameSizeForAttributedStringWithConstra
 
     self.textInsets = UIEdgeInsetsZero;
     self.lineHeightMultiple = 1.0f;
-
+    self.currentScale = 1.0f;
     self.linkModels = [NSArray array];
 
     self.linkBackgroundEdgeInset = UIEdgeInsetsMake(0.0f, -1.0f, 0.0f, -1.0f);
@@ -1064,14 +1071,16 @@ afterInheritingLabelAttributesAndConfiguringWithBlock:(NSMutableAttributedString
 - (void)setActiveLink:(TTTAttributedLabelLink *)activeLink {
     _activeLink = activeLink;
     
-    NSDictionary *activeAttributes = activeLink.activeAttributes ?: self.activeLinkAttributes;
-
+    NSMutableDictionary *activeAttributes = [activeLink.activeAttributes mutableCopy] ?: [self.activeLinkAttributes mutableCopy];
+    UIFont *font = (UIFont *)activeAttributes[NSFontAttributeName];
+    activeAttributes[NSFontAttributeName] = UIFontByScalingFontSize(font, self.currentScale);
+    
     if (_activeLink && activeAttributes.count > 0) {
         if (!self.inactiveAttributedText) {
             self.inactiveAttributedText = [self.attributedText copy];
         }
 
-        NSMutableAttributedString *mutableAttributedString = [self.inactiveAttributedText mutableCopy];
+        NSMutableAttributedString *mutableAttributedString = [NSAttributedStringByScalingFontSize(self.inactiveAttributedText, self.currentScale) mutableCopy];
         if (self.activeLink.result.range.length > 0 && NSLocationInRange(NSMaxRange(self.activeLink.result.range) - 1, NSMakeRange(0, [self.inactiveAttributedText length]))) {
             [mutableAttributedString addAttributes:activeAttributes range:self.activeLink.result.range];
         }
@@ -1175,7 +1184,7 @@ afterInheritingLabelAttributesAndConfiguringWithBlock:(NSMutableAttributedString
     NSAttributedString *originalAttributedText = nil;
 
     // Adjust the font size to fit width, if necessarry
-    if (self.adjustsFontSizeToFitWidth && self.numberOfLines > 0) {
+    if (self.adjustsFontSizeToFitWidth) {
         // Framesetter could still be working with a resized version of the text;
         // need to reset so we start from the original font size.
         // See #393.
@@ -1186,24 +1195,17 @@ afterInheritingLabelAttributesAndConfiguringWithBlock:(NSMutableAttributedString
             [self invalidateIntrinsicContentSize];
         }
         
-        // Use infinite width to find the max width, which will be compared to availableWidth if needed.
-        CGSize maxSize = (self.numberOfLines > 1) ? CGSizeMake(TTTFLOAT_MAX, TTTFLOAT_MAX) : CGSizeZero;
-
-        CGFloat textWidth = [self sizeThatFits:maxSize].width;
-        CGFloat availableWidth = self.frame.size.width * self.numberOfLines;
-        if (self.numberOfLines > 1 && self.lineBreakMode == TTTLineBreakByWordWrapping) {
-            textWidth *= kTTTLineBreakWordWrapTextWidthScalingFactor;
-        }
-
-        if (textWidth > availableWidth && textWidth > 0.0f) {
-            originalAttributedText = [self.attributedText copy];
-
-            CGFloat scaleFactor = availableWidth / textWidth;
-            if ([self respondsToSelector:@selector(minimumScaleFactor)] && self.minimumScaleFactor > scaleFactor) {
-                scaleFactor = self.minimumScaleFactor;
+        CGSize labelSize = self.bounds.size;
+        CGFloat fixedWidth = labelSize.width;
+        CGSize expectSize = [self sizeThatFits:CGSizeMake(fixedWidth, CGFLOAT_MAX)];
+        CGFloat scale = 1.0f;
+        if (expectSize.height > labelSize.height) {
+            originalAttributedText = self.attributedText;
+            while([self sizeThatFits:CGSizeMake(fixedWidth, CGFLOAT_MAX)].height > labelSize.height && scale >= self.minimumScaleFactor) {
+                scale -= 0.1;
+                self.attributedText = NSAttributedStringByScalingFontSize(originalAttributedText, scale);
             }
-
-            self.attributedText = NSAttributedStringByScalingFontSize(self.attributedText, scaleFactor);
+            self.currentScale = scale;
         }
     }
 
