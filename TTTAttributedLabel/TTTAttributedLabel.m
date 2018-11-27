@@ -1073,14 +1073,16 @@ afterInheritingLabelAttributesAndConfiguringWithBlock:(NSMutableAttributedString
     
     NSMutableDictionary *activeAttributes = [activeLink.activeAttributes mutableCopy] ?: [self.activeLinkAttributes mutableCopy];
     UIFont *font = (UIFont *)activeAttributes[NSFontAttributeName];
-    activeAttributes[NSFontAttributeName] = UIFontByScalingFontSize(font, self.currentScale);
+    if (self.currentScale < 1) {
+        activeAttributes[NSFontAttributeName] = UIFontByScalingFontSize(font, self.currentScale);
+    }
     
     if (_activeLink && activeAttributes.count > 0) {
         if (!self.inactiveAttributedText) {
             self.inactiveAttributedText = [self.attributedText copy];
         }
-
-        NSMutableAttributedString *mutableAttributedString = [NSAttributedStringByScalingFontSize(self.inactiveAttributedText, self.currentScale) mutableCopy];
+        
+        NSMutableAttributedString *mutableAttributedString = (self.currentScale < 1) ? [NSAttributedStringByScalingFontSize(self.inactiveAttributedText, self.currentScale) mutableCopy] : [self.inactiveAttributedText mutableCopy];
         if (self.activeLink.result.range.length > 0 && NSLocationInRange(NSMaxRange(self.activeLink.result.range) - 1, NSMakeRange(0, [self.inactiveAttributedText length]))) {
             [mutableAttributedString addAttributes:activeAttributes range:self.activeLink.result.range];
         }
